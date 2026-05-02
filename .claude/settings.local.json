@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Recurse C:\\\\repos\\\\Pingeon | Where-Object { -not $_.PSIsContainer } | Select-Object FullName)"
+    ]
+  }
+}
