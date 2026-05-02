@@ -13,9 +13,10 @@ $FromEmail = Read-Host "Sending email address (e.g. onboarding@resend.dev)"
 
 # Generate a random token -- stored only in Cloudflare secrets, never in the repo.
 # The Worker injects it into setup.ps1 at serve-time so users get it automatically.
-$NotifyToken = [System.Convert]::ToBase64String(
-    [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
-)
+$rng   = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes = New-Object byte[] 32
+$rng.GetBytes($bytes)
+$NotifyToken = [System.Convert]::ToBase64String($bytes)
 
 Write-Host ""
 Write-Host ">>> Setting secrets..." -ForegroundColor Cyan

@@ -3,3 +3,24 @@ main = "worker.js"
 compatibility_date = "2024-09-23"
 workers_dev = true
 preview_urls = false
+
+# Rate limiters for /notify. The token is shared across every install,
+# so anyone who installs Pingeon can hit /notify -- these caps stop
+# a leaked/extracted token from being used as a spam relay.
+#
+# Cloudflare's simple rate limiter only supports period = 10 or 60 seconds.
+# 10 requests / 60s per source IP and 5 / 60s per destination email is
+# generous for legitimate use (Pingeon polls every 1-60 minutes per user)
+# and tight enough that a single attacker can't realistically spam.
+
+[[unsafe.bindings]]
+name = "IP_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[unsafe.bindings]]
+name = "TO_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 5, period = 60 }

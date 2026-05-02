@@ -8,12 +8,38 @@
  *   RESEND_API_KEY  -- from resend.com
  *   FROM_EMAIL      -- verified sender address
  *   NOTIFY_TOKEN    -- random secret; blocks unauthorized use of /notify
+ *
+ * Bindings (declared in wrangler.toml):
+ *   IP_LIMITER      -- per-IP rate limiter for /notify
+ *   TO_LIMITER      -- per-destination rate limiter for /notify
  */
 
 const SETUP_URL =
   'https://raw.githubusercontent.com/talonbaker/Pingeon/main/setup.ps1';
 
 const EMAIL_SUBJECT = 'Pingeon -- A slot just opened!';
+
+// Hard caps on /notify input. The shared token is distributed to every
+// installer, so anyone who installs Pingeon can call this endpoint --
+// these limits constrain the blast radius of an abusive caller.
+const MAX_BODY_BYTES   = 8 * 1024;
+const MAX_EMAIL_LEN    = 254;   // RFC 5321
+const MAX_SUMMARY_LEN  = 200;
+const MAX_DATE_LEN     = 64;
+const MAX_SLOTS        = 10;
+
+// RFC-5322-ish: one @, no whitespace, a dot in the domain. Combined with
+// the length cap this is strict enough to reject obvious junk.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function badRequest(msg) {
+  return new Response(msg, { status: 400 });
+}
+
+function clipString(value, maxLen) {
+  if (typeof value !== 'string') return '';
+  return value.length > maxLen ? value.slice(0, maxLen) : value;
+}
 
 function buildEmailBody(slots, isTest) {
   if (isTest) {
@@ -40,8 +66,14 @@ async function handleInstall(env) {
   // Inject the notify token here so it never appears in the GitHub repo.
   // The repo always holds an empty placeholder; the real value lives only
   // in Cloudflare secrets and on the user's local machine after install.
+  //
+  // The token is interpolated into a PowerShell single-quoted string on the
+  // installer's machine. PowerShell escapes ' inside '...' by doubling it
+  // (''), so we must do the same here -- otherwise a token containing '
+  // could break out of the literal and execute arbitrary code on installers.
   let script = await upstream.text();
-  const token = env.NOTIFY_TOKEN || '';
+  const rawToken = env.NOTIFY_TOKEN || '';
+  const token = rawToken.replace(/'/g, "''");
   script += `\n$PingeonNotifyToken = '${token}'\n`;
 
   return new Response(script, {
@@ -60,20 +92,65 @@ async function handleNotify(request, env) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return new Response('Bad JSON', { status: 400 });
+  // Per-IP rate limit -- caps how fast any single source can hit /notify,
+  // even with a valid token. Defends against an installer extracting the
+  // token and using the relay for spam.
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (env.IP_LIMITER) {
+    const { success } = await env.IP_LIMITER.limit({ key: clientIP });
+    if (!success) {
+      return new Response('Rate limit exceeded', { status: 429 });
+    }
   }
 
-  const to = (body.to || '').trim();
-  if (!to || !to.includes('@')) {
-    return new Response('Missing or invalid "to" address', { status: 400 });
+  // Cap request body size before parsing -- a huge JSON blob shouldn't
+  // even reach JSON.parse.
+  const lenHeader = request.headers.get('Content-Length');
+  if (lenHeader && Number(lenHeader) > MAX_BODY_BYTES) {
+    return new Response('Payload too large', { status: 413 });
+  }
+  const raw = await request.text();
+  if (raw.length > MAX_BODY_BYTES) {
+    return new Response('Payload too large', { status: 413 });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return badRequest('Bad JSON');
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return badRequest('Bad JSON');
+  }
+
+  const to = typeof body.to === 'string' ? body.to.trim() : '';
+  if (!to || to.length > MAX_EMAIL_LEN || !EMAIL_RE.test(to)) {
+    return badRequest('Missing or invalid "to" address');
+  }
+
+  // Per-destination rate limit -- stops a malicious caller from flooding
+  // a single victim's inbox even within their per-IP budget.
+  if (env.TO_LIMITER) {
+    const { success } = await env.TO_LIMITER.limit({ key: to.toLowerCase() });
+    if (!success) {
+      return new Response('Rate limit exceeded', { status: 429 });
+    }
   }
 
   const isTest = Boolean(body.test);
-  const slots  = Array.isArray(body.slots) ? body.slots : [];
+
+  // Sanitize and cap slots. Anything malformed is dropped silently;
+  // length caps keep one bad caller from generating gigantic emails.
+  const rawSlots = Array.isArray(body.slots) ? body.slots.slice(0, MAX_SLOTS) : [];
+  const slots = [];
+  for (const s of rawSlots) {
+    if (!s || typeof s !== 'object') continue;
+    slots.push({
+      summary: clipString(s.summary, MAX_SUMMARY_LEN),
+      date:    clipString(s.date,    MAX_DATE_LEN),
+    });
+  }
 
   const emailPayload = {
     from: env.FROM_EMAIL || 'Pingeon <onboarding@resend.dev>',
@@ -92,8 +169,9 @@ async function handleNotify(request, env) {
   });
 
   if (!resendRes.ok) {
-    const err = await resendRes.text();
-    return new Response(`Email service error: ${err}`, { status: 502 });
+    // Don't echo the upstream error body back to the caller -- it can
+    // leak details about our Resend account / config.
+    return new Response('Email service error', { status: 502 });
   }
 
   return new Response('OK', { status: 200 });

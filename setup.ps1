@@ -83,7 +83,12 @@ foreach ($f in $Files) {
 if ($PingeonNotifyToken) {
     $constantsPath = Join-Path $PkgDir 'constants.py'
     $src = Get-Content $constantsPath -Raw
-    $src = $src -replace 'NOTIFY_TOKEN = ""', "NOTIFY_TOKEN = `"$PingeonNotifyToken`""
+    # Use [string]::Replace (literal) instead of -replace (regex) so any
+    # $, \, or other regex-special character in the token is treated as
+    # plain text. -replace would interpret $1, $&, etc. as backreferences.
+    $needle      = 'NOTIFY_TOKEN = ""'
+    $replacement = 'NOTIFY_TOKEN = "' + $PingeonNotifyToken + '"'
+    $src = $src.Replace($needle, $replacement)
     Set-Content $constantsPath $src -Encoding UTF8
     Write-OK "Notify token applied."
 }

@@ -31,8 +31,6 @@ RETRY_BACKOFF_SECONDS = 30
 
 ICS_URL_TEMPLATE = "https://calendar.google.com/calendar/ical/{calendar_id}/public/basic.ics"
 
-TASK_NAME = "Pingeon"
-
 # Cloudflare Worker — serves setup.ps1 and relays alert emails
 NOTIFY_ENDPOINT = "https://pingeon.talonbaker.workers.dev"
 
