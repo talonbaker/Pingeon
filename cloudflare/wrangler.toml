@@ -1,3 +1,5 @@
 name = "pingeon"
 main = "worker.js"
 compatibility_date = "2024-09-23"
+workers_dev = true
+preview_urls = false
