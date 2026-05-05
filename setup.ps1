@@ -75,18 +75,6 @@ foreach ($f in $Files) {
     }
 }
 
-# -- Inject notify token ------------------------------------------------------
-# $PingeonNotifyToken is appended to this script by the Worker at serve-time.
-# It never appears in the GitHub repo -- only in Cloudflare secrets and here.
-
-if ($PingeonNotifyToken) {
-    $constantsPath = Join-Path $PkgDir 'constants.py'
-    $src = Get-Content $constantsPath -Raw
-    $src = $src -replace 'NOTIFY_TOKEN = ""', "NOTIFY_TOKEN = `"$PingeonNotifyToken`""
-    Set-Content $constantsPath $src -Encoding UTF8
-    Write-OK "Notify token applied."
-}
-
 # -- Dependencies -------------------------------------------------------------
 # Pingeon is pure stdlib -- no third-party packages required.
 

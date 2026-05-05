@@ -43,6 +43,3 @@ TASK_NAME = "Pingeon"
 
 # Cloudflare Worker — serves setup.ps1 and relays alert emails
 NOTIFY_ENDPOINT = "https://pingeon.talonbaker.workers.dev"
-
-# Populated by deploy.ps1 — authorizes this app to use the /notify endpoint
-NOTIFY_TOKEN = ""

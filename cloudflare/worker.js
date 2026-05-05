@@ -7,7 +7,6 @@
  * Secrets (set via deploy.ps1 -- never stored in the repo):
  *   RESEND_API_KEY  -- from resend.com
  *   FROM_EMAIL      -- verified sender address
- *   NOTIFY_TOKEN    -- random secret; first line of defense for /notify
  *
  * Bindings (declared in wrangler.toml):
  *   IP_LIMIT        -- per-IP rate limit on /notify
@@ -70,17 +69,7 @@ async function handleInstall(env) {
     return txt(502, `# Failed to fetch setup script (HTTP ${upstream.status})`);
   }
 
-  // Inject the notify token here so it never appears in the GitHub repo.
-  // The token is base64 (alphanumeric + `+/=`), so it cannot break out of
-  // the single-quoted PowerShell literal -- but defense-in-depth: refuse to
-  // serve the script if the token contains anything unexpected.
-  let script = await upstream.text();
-  const token = env.NOTIFY_TOKEN || '';
-  if (token && !/^[A-Za-z0-9+/=]+$/.test(token)) {
-    return txt(500, '# Server misconfigured: NOTIFY_TOKEN is malformed.');
-  }
-  script += `\n$PingeonNotifyToken = '${token}'\n`;
-
+  const script = await upstream.text();
   return new Response(script, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
@@ -138,14 +127,7 @@ async function handleNotify(request, env) {
     if (!r.success) return txt(429, 'Rate limit exceeded.');
   }
 
-  // 3. Token check.
-  const auth = request.headers.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!env.NOTIFY_TOKEN || token !== env.NOTIFY_TOKEN) {
-    return txt(401, 'Unauthorized');
-  }
-
-  // 4. Parse with explicit byte limit.
+  // 3. Parse with explicit byte limit.
   const raw = await request.text();
   if (raw.length > MAX_BODY_BYTES) {
     return txt(413, 'Payload too large');

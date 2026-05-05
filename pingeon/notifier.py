@@ -13,7 +13,7 @@ import urllib.request
 import urllib.error
 from datetime import date
 
-from .constants import NOTIFY_ENDPOINT, NOTIFY_TOKEN
+from .constants import NOTIFY_ENDPOINT
 from . import logger
 
 
@@ -24,7 +24,6 @@ def _make_request(url: str, payload: dict) -> urllib.request.Request:
         headers={
             "Content-Type": "application/json",
             "User-Agent": "Pingeon/1.0",
-            "Authorization": f"Bearer {NOTIFY_TOKEN}",
         },
         method="POST",
     )
