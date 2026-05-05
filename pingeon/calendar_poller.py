@@ -55,10 +55,16 @@ def _post(schedule_id: str, start_ts: int, end_ts: int) -> Any:
 def _harvest_timestamps(node: Any, out: list[int]) -> None:
     """Recursively collect plausible Unix-second timestamps from the response."""
     if isinstance(node, list):
-        # Common shape: [start_unix_seconds] with maybe [unix_micros] alongside.
-        if len(node) == 1 and isinstance(node[0], int) and 1_600_000_000 <= node[0] <= 2_500_000_000:
-            out.append(node[0])
-            return
+        if len(node) == 1:
+            val = node[0]
+            if isinstance(val, str):
+                try:
+                    val = int(val)
+                except ValueError:
+                    pass
+            if isinstance(val, int) and 1_600_000_000 <= val <= 2_500_000_000:
+                out.append(val)
+                return
         for child in node:
             _harvest_timestamps(child, out)
     elif isinstance(node, dict):
