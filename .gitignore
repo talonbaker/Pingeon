@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Cloudflare Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local Claude Code workspace state -- per-machine, not for the repo
+.claude/
+
+# Build / dist
+dist/
+build/

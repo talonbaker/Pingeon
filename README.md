@@ -1,7 +1,13 @@
-# Pingeon
+<p align="center">
+  <img src="assets/pingeon_logo.png" alt="Pingeon" width="200">
+</p>
 
-> The power-pigeon ping engine.
-> Watches any Google Appointment Scheduling page and emails you the moment a slot opens.
+<h1 align="center">Pingeon</h1>
+
+<p align="center">
+  <em>The power-pigeon ping engine.</em><br>
+  Watches any Google Appointment Scheduling page and emails you the moment a slot opens.
+</p>
 
 Booked-out clinic? Photographer with no openings for a year? Pingeon polls the
 schedule on your behalf and pings you the second somebody cancels — so you can
