@@ -100,6 +100,7 @@ def fetch_available_dates(
         except Exception as exc:
             logger.error(f"Window {win_start}..{win_end} fetch failed: {exc}")
             continue
+        logger.debug(f"Raw API response: {json.dumps(payload)[:500]}")
         dates = _slots_to_dates(payload)
         in_range = {d for d in dates if start_date <= d <= end_date}
         logger.debug(f"Window {win_start}..{win_end}: {len(in_range)} day(s) available.")

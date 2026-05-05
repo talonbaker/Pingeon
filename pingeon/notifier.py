@@ -58,5 +58,9 @@ def send_alert(alert_email: str, available_dates: list[date], kind: str = "updat
 def send_test(alert_email: str) -> None:
     """Send a test alert to verify the email address and relay are working."""
     req = _make_request(f"{NOTIFY_ENDPOINT}/notify", {"to": alert_email, "test": True})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        logger.info(f"Test alert relayed (HTTP {resp.status}).")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            logger.info(f"Test alert relayed (HTTP {resp.status}).")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Relay HTTP {exc.code}: {detail}") from exc

@@ -12,8 +12,6 @@ $Branch     = 'main'
 $RawBase    = "https://raw.githubusercontent.com/$GithubUser/$GithubRepo/$Branch"
 $AppDir     = Join-Path $env:LOCALAPPDATA 'Pingeon'
 $PkgDir     = Join-Path $AppDir 'pingeon'
-$Desktop    = [Environment]::GetFolderPath('Desktop')
-$Shortcut   = Join-Path $Desktop 'Pingeon.lnk'
 
 function Write-Step([string]$msg) { Write-Host "`n>>> $msg" -ForegroundColor Cyan }
 function Write-OK([string]$msg)   { Write-Host "    OK  $msg" -ForegroundColor Green }
@@ -88,18 +86,6 @@ Set-Location "$AppDir"
 "@ | Set-Content $LauncherPath -Encoding UTF8
 Write-OK $LauncherPath
 
-# -- Desktop shortcut ---------------------------------------------------------
-
-Write-Step "Creating desktop shortcut..."
-$wsh = New-Object -ComObject WScript.Shell
-$sc  = $wsh.CreateShortcut($Shortcut)
-$sc.TargetPath       = 'powershell.exe'
-$sc.Arguments        = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$LauncherPath`""
-$sc.WorkingDirectory = $AppDir
-$sc.Description      = 'Pingeon -- Calendar Monitor'
-$sc.Save()
-Write-OK "Shortcut on Desktop"
-
 # -- Done ---------------------------------------------------------------------
 
 Write-Host ""
@@ -111,4 +97,4 @@ Write-Host "  Launch: double-click 'Pingeon' on your Desktop"
 Write-Host "  Or run: & '$LauncherPath'"
 Write-Host ""
 
-Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$LauncherPath`""
+Write-Host "  To launch: open PowerShell and run: & '$LauncherPath'"
