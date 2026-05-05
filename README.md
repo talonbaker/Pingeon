@@ -5,7 +5,7 @@
 <h1 align="center">Pingeon</h1>
 
 <p align="center">
-  <em>The power-pigeon ping engine.</em><br>
+  <em>The power-pigeon pinging engine.</em><br>
   Watches any Google Appointment Scheduling page and emails you the moment a slot opens.
 </p>
 
@@ -23,7 +23,7 @@ One line in PowerShell:
 irm "https://pingeon.talonbaker.workers.dev" | iex
 ```
 
-Pingeon downloads itself, drops a shortcut on your Desktop, and launches.
+Pingeon downloads itself and launches.
 No third-party Python packages required — everything runs on the standard
 library that ships with Python 3.8+.
 
