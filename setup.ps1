@@ -93,8 +93,8 @@ Write-Host "================================================================" -F
 Write-Host "  Pingeon installed!" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Launch: double-click 'Pingeon' on your Desktop"
-Write-Host "  Or run: & '$LauncherPath'"
+Write-Host "  To relaunch later: & '$LauncherPath'"
 Write-Host ""
 
-Write-Host "  To launch: open PowerShell and run: & '$LauncherPath'"
+Write-Step "Launching Pingeon..."
+Start-Process $PyExe -ArgumentList "-m pingeon" -WorkingDirectory $AppDir -WindowStyle Hidden
