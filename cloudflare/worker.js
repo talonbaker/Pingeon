@@ -168,8 +168,8 @@ async function handleNotify(request, env) {
   });
 
   if (!resendRes.ok) {
-    // Don't leak Resend's response back to the caller.
-    return txt(502, 'Email service error');
+    const detail = await resendRes.text();
+    return txt(502, `Email service error (Resend ${resendRes.status}): ${detail}`);
   }
   return txt(200, 'OK');
 }
