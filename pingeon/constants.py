@@ -15,7 +15,6 @@ def _get_data_dir() -> str:
 DATA_DIR = _get_data_dir()
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 LOG_FILE = os.path.join(DATA_DIR, "monitor.log")
-DB_FILE = os.path.join(DATA_DIR, "state.db")
 
 LOG_MAX_BYTES = 10 * 1024 * 1024
 LOG_BACKUP_COUNT = 5
@@ -29,7 +28,16 @@ FETCH_TIMEOUT_SECONDS = 30
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 30
 
-ICS_URL_TEMPLATE = "https://calendar.google.com/calendar/ical/{calendar_id}/public/basic.ics"
+# Google Appointment Scheduling -- public, unauthenticated booking-page API.
+# The API key below is the same one the booking page itself uses; it is
+# embedded in the page HTML and rate-limited per origin, not per user.
+APPT_API_URL = (
+    "https://calendar-pa.clients6.google.com"
+    "/$rpc/google.internal.calendar.v1.AppointmentBookingService/ListAvailableSlots"
+)
+APPT_API_KEY = "AIzaSyA7GKm43l8WNxlLTjsldq9z9n80CL6KW4U"
+# Server rejects windows much wider than ~30 days with INVALID_ARGUMENT.
+APPT_WINDOW_DAYS = 30
 
 TASK_NAME = "Pingeon"
 

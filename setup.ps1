@@ -59,8 +59,7 @@ $Files = @(
     'pingeon/calendar_poller.py',
     'pingeon/notifier.py',
     'pingeon/service_manager.py',
-    'pingeon/gui.py',
-    'requirements.txt'
+    'pingeon/gui.py'
 )
 
 foreach ($f in $Files) {
@@ -89,15 +88,7 @@ if ($PingeonNotifyToken) {
 }
 
 # -- Dependencies -------------------------------------------------------------
-
-Write-Step "Installing Python dependencies..."
-$req = Join-Path $AppDir 'requirements.txt'
-& $PyExe -m pip install -r $req --user --quiet
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "pip returned non-zero -- the app may still work if icalendar is already installed."
-} else {
-    Write-OK "Dependencies ready."
-}
+# Pingeon is pure stdlib -- no third-party packages required.
 
 # -- Launcher -----------------------------------------------------------------
 

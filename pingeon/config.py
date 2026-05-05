@@ -1,8 +1,11 @@
+import base64
 import json
 import os
 import re
+import urllib.request
 from datetime import datetime, date
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from .constants import DATA_DIR, CONFIG_FILE
 from . import logger
@@ -45,34 +48,72 @@ def save(cfg: dict[str, Any]) -> None:
         raise
 
 
+def _resolve_google_short_link(link: str) -> str:
+    """Follow redirects on a calendar.app.google short link.
+    Caller must verify hostname before calling -- never invoke with
+    arbitrary user-supplied URLs (SSRF)."""
+    req = urllib.request.Request(link, headers={"User-Agent": "Pingeon/1.0"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return resp.geturl()
+
+
 def extract_calendar_id(link: str) -> str:
     """
-    Extract calendar ID from any Google Calendar share URL format.
-    Supports ?cid= (base64), ?src=, and raw IDs.
+    Extract a polling identifier from any Google Calendar share URL format.
+    Returns a raw appointment schedule ID (starts with 'AcZssZ...') for
+    appointment-scheduling links, otherwise a calendar ID for ICS-style ones.
     """
     link = link.strip()
+
+    # Raw appointment schedule IDs as pasted by the user.
+    if link.startswith("AcZssZ") and "/" not in link and "?" not in link:
+        return link
 
     if "@" in link and "http" not in link:
         return link
 
+    # Short link -- resolve via HTTP redirect, then recurse on the long URL.
+    # Strict hostname check (parsed, not substring) keeps this from being
+    # an SSRF gadget for arbitrary user input.
+    parsed = urlparse(link)
+    if parsed.hostname == "calendar.app.google":
+        try:
+            resolved = _resolve_google_short_link(link)
+        except Exception as exc:
+            raise ValueError(
+                "Could not resolve the calendar.app.google short link. "
+                "Open it in a browser and paste the long URL from the "
+                f"address bar instead. ({exc})"
+            )
+        if resolved and resolved != link:
+            return extract_calendar_id(resolved)
+
+    appt_match = re.search(r"/appointments/schedules/([A-Za-z0-9_-]+)", link)
+    if appt_match:
+        return appt_match.group(1)
+
     cid_match = re.search(r"[?&]cid=([^&]+)", link)
     if cid_match:
-        import base64
-        try:
-            decoded = base64.b64decode(cid_match.group(1) + "==").decode("utf-8")
-            if "@" in decoded:
-                return decoded
-        except Exception:
-            pass
+        cid = cid_match.group(1)
+        for decoder in (base64.urlsafe_b64decode, base64.b64decode):
+            try:
+                decoded = decoder(cid + "==").decode("utf-8")
+                if "@" in decoded:
+                    return decoded
+            except Exception:
+                pass
 
     src_match = re.search(r"[?&]src=([^&]+)", link)
     if src_match:
-        from urllib.parse import unquote
         return unquote(src_match.group(1))
+
+    ical_match = re.search(r"/calendar/ical/([^/]+)/", link)
+    if ical_match:
+        return unquote(ical_match.group(1))
 
     raise ValueError(
         "Could not extract a calendar ID from the provided link. "
-        "Paste the full Google Calendar share link."
+        "Open the calendar in a browser and paste the URL from the address bar."
     )
 
 

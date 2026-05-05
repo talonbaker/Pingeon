@@ -11,13 +11,10 @@ External connection: POST to the Pingeon Cloudflare Worker /notify endpoint.
 import json
 import urllib.request
 import urllib.error
-from typing import TYPE_CHECKING
+from datetime import date
 
 from .constants import NOTIFY_ENDPOINT, NOTIFY_TOKEN
 from . import logger
-
-if TYPE_CHECKING:
-    from .calendar_poller import CalendarEvent
 
 
 def _make_request(url: str, payload: dict) -> urllib.request.Request:
@@ -33,17 +30,19 @@ def _make_request(url: str, payload: dict) -> urllib.request.Request:
     )
 
 
-def send_alert(alert_email: str, events: "list[CalendarEvent]") -> None:
-    """POST slot info to the relay Worker, which emails the user."""
-    if not events:
+def send_alert(alert_email: str, available_dates: list[date], kind: str = "update") -> None:
+    """POST available dates to the relay Worker, which emails the user.
+
+    kind="initial" -> first-poll snapshot of currently-open dates.
+    kind="update"  -> a date just transitioned to available (cancellation).
+    """
+    if not available_dates:
         return
 
     payload = {
         "to": alert_email,
-        "slots": [
-            {"summary": e.summary, "date": e.start.isoformat()}
-            for e in events
-        ],
+        "kind": kind,
+        "slots": [{"date": d.isoformat()} for d in sorted(available_dates)],
     }
     req = _make_request(f"{NOTIFY_ENDPOINT}/notify", payload)
     try:

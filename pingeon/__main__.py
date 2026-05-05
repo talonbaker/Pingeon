@@ -8,7 +8,7 @@ import sys
 from datetime import date
 
 from . import config, logger
-from .calendar_poller import fetch_and_diff
+from .calendar_poller import fetch_available_dates, all_days_in_range
 
 
 def _poll_once() -> None:
@@ -20,12 +20,14 @@ def _poll_once() -> None:
         sys.exit(1)
 
     logger.info("Manual poll started.")
-    opened = fetch_and_diff(
-        cfg["calendar_id"],
-        date.fromisoformat(cfg["monitor_start_date"]),
-        date.fromisoformat(cfg["monitor_end_date"]),
+    start = date.fromisoformat(cfg["monitor_start_date"])
+    end = date.fromisoformat(cfg["monitor_end_date"])
+    available = sorted(fetch_available_dates(cfg["calendar_id"], start, end))
+    total = len(all_days_in_range(start, end))
+    print(
+        f"Range days: {total} | Available: {len(available)} | "
+        f"Sample: {[d.isoformat() for d in available[:5]]}"
     )
-    print(f"Openings detected: {[e.label() for e in opened]}" if opened else "No changes.")
     logger.info("Manual poll complete.")
 
 

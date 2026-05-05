@@ -3,3 +3,18 @@ main = "worker.js"
 compatibility_date = "2024-09-23"
 workers_dev = true
 preview_urls = false
+
+# Per-IP rate limit on /notify -- 30 requests/minute.
+[[unsafe.bindings]]
+name = "IP_LIMIT"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
+
+# Per-recipient cap -- 20 emails/hour to any single address. Stops a stolen
+# token from being used to flood one inbox even if the IP rotates.
+[[unsafe.bindings]]
+name = "TO_LIMIT"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 20, period = 60 }

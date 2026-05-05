@@ -1,88 +1,118 @@
 # Pingeon
-## The Power Pigeon Pinging Engine
-Pingeon is an automated calendar monitoring system that watches public calendars for availability and alerts you the instant an opening appears. No more manual checking, no more missing out -- Pingeon swoops in and notifies you immediately when a slot becomes available. Whether you're hunting for a photographer appointment, booking a vacation rental, or catching a limited-availability event, Pingeon gives you the speed advantage to claim it first.
 
-Set it. Forget it. Get pinged.
+> The power-pigeon ping engine.
+> Watches any Google Appointment Scheduling page and emails you the moment a slot opens.
+
+Booked-out clinic? Photographer with no openings for a year? Pingeon polls the
+schedule on your behalf and pings you the second somebody cancels — so you can
+swoop in before anyone else.
 
 ---
 
 ## Install (Windows)
 
+One line in PowerShell:
+
 ```powershell
 irm "https://pingeon.talonbaker.workers.dev" | iex
 ```
 
-That's it. Pingeon downloads itself, installs its dependency, and puts a shortcut on your Desktop.
+Pingeon downloads itself, drops a shortcut on your Desktop, and launches.
+No third-party Python packages required — everything runs on the standard
+library that ships with Python 3.8+.
+
+---
+
+## Use it
+
+| Field | Example |
+|---|---|
+| **Calendar Link** | `https://calendar.app.google/...` (any Google Appointment Scheduling URL) |
+| **Start Date** | `2026-06-01` |
+| **End Date** | `2027-06-01` |
+| **Check Interval** | `5` (minutes, 1–60) |
+| **Alert Email** | where alerts go (no password) |
+
+1. Click **Save Settings**, then **Send Test Alert** to verify the relay works.
+2. Click **Start Monitor**.
+3. The first email lists every date currently open in your range — in case you
+   missed any.
+4. Every interval after that, Pingeon checks for cancellations. When a date
+   transitions from booked to open, you get one email per newly-open date.
+5. The same date won't email you twice in one session. Stop and restart to reset.
 
 ---
 
 ## How it works
 
-1. Reads any **public** Google Calendar ICS feed -- no login, no API key
-2. Compares each check against the previous snapshot
-3. When a booked slot disappears (cancellation / opening), Pingeon emails you
-4. Repeats on the interval you choose (default: every 2 minutes)
+```
+Google Appointment           Pingeon (your machine)              You
+Scheduling API     ──────►   poll every N minutes      ──────►   email
+                             diff against baseline                with
+                             dedup notified dates                 the freed
+                                                                  date
+```
 
----
-
-## Configuration
-
-| Field | Example |
-|---|---|
-| Calendar Link | Share URL from Google Calendar |
-| Start Date | `2027-01-15` |
-| End Date | `2027-03-31` |
-| Check Interval | `2` (minutes, 1-60) |
-| Alert Email | `you@example.com` (where alerts go) |
-
-No password required. Pingeon's relay handles the sending.
+- Reads from Google's public Appointment Scheduling JSON API — no login, no
+  API key on your end.
+- The poller paginates 30-day windows (Google's per-request cap) and reduces
+  slot timestamps to calendar days.
+- A Cloudflare Worker fronts a small Resend account that delivers your alert
+  emails. You never give Pingeon a password.
 
 ---
 
 ## Privacy
 
-| What leaves your machine | Where |
+| Data | Destination |
 |---|---|
-| Public calendar ID | Google Calendar ICS feed (read-only) |
-| Your email + slot info | Pingeon relay -> your inbox |
+| Calendar link / schedule ID | Google Appointment Scheduling API (read-only) |
+| Your alert email + a list of dates | Pingeon relay → your inbox |
 
-Everything else stays local (`%LOCALAPPDATA%\Pingeon\`). No analytics, no telemetry.
+Everything else stays in `%LOCALAPPDATA%\Pingeon\` (config, logs). No analytics,
+no telemetry, no third-party trackers.
 
 ---
 
-## Manual setup
+## Manual install (developer / non-Windows)
 
-```powershell
+```bash
 git clone https://github.com/talonbaker/Pingeon.git
 cd Pingeon
-pip install -r requirements.txt
-python -m pingeon
+python -m pingeon            # GUI
+python -m pingeon --poll     # one-shot CLI poll, no GUI, no alerts
 ```
-
-CLI poll (no GUI): `python -m pingeon --poll`
 
 ---
 
-## Deploy the Worker (one-time, developer only)
+## Self-host the relay (optional)
 
-Requires [Node.js](https://nodejs.org) and a free [Resend](https://resend.com) account (3,000 emails/month).
+If you want to run Pingeon's email relay on your own Cloudflare account
+instead of `pingeon.talonbaker.workers.dev`:
 
 ```powershell
 .\deploy.ps1
 ```
 
-That's it -- no directory changes, no manual wrangler commands.
+You'll need:
+
+- [Node.js](https://nodejs.org)
+- A free [Resend](https://resend.com) account (3,000 emails/month)
+- A domain verified in Resend for the `From:` address
+
+The deploy script provisions a random `NOTIFY_TOKEN`, sets all secrets, and
+publishes the Worker. Read [`SECURITY.md`](SECURITY.md) before you go public.
 
 ---
 
 ## Uninstall
 
-1. Click **Stop Monitor** in the app
-2. Delete `%LOCALAPPDATA%\Pingeon\`
-3. Delete the `Pingeon` shortcut from your Desktop
+1. **Stop Monitor** in the app.
+2. Delete `%LOCALAPPDATA%\Pingeon\`.
+3. Delete the `Pingeon` shortcut from your Desktop.
 
 ---
 
 ## License
 
-MIT -- see [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE).

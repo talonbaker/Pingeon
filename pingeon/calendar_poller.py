@@ -1,168 +1,116 @@
 """
-Fetches a public Google Calendar ICS feed and diffs it against the last
-known state to detect newly available slots (cancellations).
+Polls Google's Appointment Scheduling API for the set of available slots
+inside the user's preferred date range and returns them as dates.
 
-External connection: Google Calendar ICS feed only — read-only, no auth.
+Endpoint: calendar-pa.clients6.google.com /$rpc .../ListAvailableSlots
+Authentication: public API key embedded in the booking page (no user creds).
+The API caps each request at ~30 days, so we paginate.
 """
 
-import os
-import sqlite3
+import json
 import time
-from dataclasses import dataclass
-from datetime import date, datetime
-from typing import Optional
+import urllib.error
 import urllib.request
-
-from icalendar import Calendar  # type: ignore
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Optional
 
 from .constants import (
-    DATA_DIR, DB_FILE, ICS_URL_TEMPLATE,
+    APPT_API_URL, APPT_API_KEY, APPT_WINDOW_DAYS,
     FETCH_TIMEOUT_SECONDS, RETRY_ATTEMPTS, RETRY_BACKOFF_SECONDS,
 )
 from . import logger
 
-os.makedirs(DATA_DIR, exist_ok=True)
 
-
-@dataclass(frozen=True)
-class CalendarEvent:
-    uid: str
-    summary: str
-    start: date
-    end: date
-
-    def label(self) -> str:
-        return f"{self.summary} on {self.start}"
-
-
-def _fetch_ics(calendar_id: str) -> bytes:
-    url = ICS_URL_TEMPLATE.format(calendar_id=calendar_id)
+def _post(schedule_id: str, start_ts: int, end_ts: int) -> Any:
+    body = json.dumps([None, None, schedule_id, None, [[start_ts], [end_ts]]]).encode("utf-8")
+    req = urllib.request.Request(
+        APPT_API_URL,
+        data=body,
+        headers={
+            "X-Goog-Api-Key": APPT_API_KEY,
+            "Content-Type": "application/json+protobuf",
+            "X-User-Agent": "grpc-web-javascript/0.1",
+            "Origin": "https://calendar.google.com",
+            "Referer": "https://calendar.google.com/",
+            "User-Agent": "Pingeon/1.0",
+        },
+        method="POST",
+    )
     last_exc: Optional[Exception] = None
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         try:
-            logger.debug(f"Fetching ICS (attempt {attempt})")
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Pingeon/1.0 (public-calendar-read)"},
-            )
             with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_SECONDS) as resp:
-                return resp.read()
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:300]
+            raise RuntimeError(f"Slot API HTTP {exc.code}: {detail}")
         except Exception as exc:
             last_exc = exc
-            logger.warning(f"Fetch attempt {attempt} failed: {exc}")
+            logger.warning(f"Slot fetch attempt {attempt} failed: {exc}")
             if attempt < RETRY_ATTEMPTS:
                 time.sleep(RETRY_BACKOFF_SECONDS)
-    raise RuntimeError(f"Calendar fetch failed after {RETRY_ATTEMPTS} attempts: {last_exc}")
+    raise RuntimeError(f"Slot API failed after {RETRY_ATTEMPTS} attempts: {last_exc}")
 
 
-def _parse_ics(raw: bytes, start_date: date, end_date: date) -> list[CalendarEvent]:
-    events: list[CalendarEvent] = []
-    try:
-        cal = Calendar.from_ical(raw)
-    except Exception as exc:
-        logger.error(f"ICS parse error: {exc}")
-        return events
+def _harvest_timestamps(node: Any, out: list[int]) -> None:
+    """Recursively collect plausible Unix-second timestamps from the response."""
+    if isinstance(node, list):
+        # Common shape: [start_unix_seconds] with maybe [unix_micros] alongside.
+        if len(node) == 1 and isinstance(node[0], int) and 1_600_000_000 <= node[0] <= 2_500_000_000:
+            out.append(node[0])
+            return
+        for child in node:
+            _harvest_timestamps(child, out)
+    elif isinstance(node, dict):
+        for v in node.values():
+            _harvest_timestamps(v, out)
 
-    for component in cal.walk():
-        if component.name != "VEVENT":
-            continue
+
+def _slots_to_dates(payload: Any) -> set[date]:
+    """Convert ListAvailableSlots response → set of UTC-day calendar dates.
+
+    The response is a nested JSON array. Each available slot has its start time
+    encoded as [unix_seconds] somewhere in its sub-tree. We collect every such
+    timestamp and reduce to the day. Two timestamps belong to the same slot
+    (start + end), so we de-dupe by date.
+    """
+    timestamps: list[int] = []
+    _harvest_timestamps(payload, timestamps)
+    return {datetime.fromtimestamp(ts, tz=timezone.utc).date() for ts in timestamps}
+
+
+def _windowed(start_date: date, end_date: date, span_days: int):
+    cur = start_date
+    while cur <= end_date:
+        win_end = min(cur + timedelta(days=span_days), end_date + timedelta(days=1))
+        yield cur, win_end
+        cur = win_end
+
+
+def fetch_available_dates(
+    schedule_id: str, start_date: date, end_date: date
+) -> set[date]:
+    """Return every date in [start_date, end_date] that has at least one bookable slot."""
+    available: set[date] = set()
+    for win_start, win_end in _windowed(start_date, end_date, APPT_WINDOW_DAYS):
+        st = int(datetime(win_start.year, win_start.month, win_start.day, tzinfo=timezone.utc).timestamp())
+        en = int(datetime(win_end.year, win_end.month, win_end.day, tzinfo=timezone.utc).timestamp())
         try:
-            uid = str(component.get("UID", ""))
-            summary = str(component.get("SUMMARY", "Busy"))
-            dtstart = component.get("DTSTART")
-            dtend = component.get("DTEND")
-            if dtstart is None:
-                continue
-
-            ev_start = dtstart.dt
-            ev_end = dtend.dt if dtend else ev_start
-            if isinstance(ev_start, datetime):
-                ev_start = ev_start.date()
-            if isinstance(ev_end, datetime):
-                ev_end = ev_end.date()
-
-            if ev_end < start_date or ev_start > end_date:
-                continue
-
-            events.append(CalendarEvent(uid=uid, summary=summary, start=ev_start, end=ev_end))
+            payload = _post(schedule_id, st, en)
         except Exception as exc:
-            logger.warning(f"Skipping malformed VEVENT: {exc}")
-
-    return events
-
-
-def _get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS calendar_state (
-            uid TEXT PRIMARY KEY,
-            summary TEXT,
-            start_date TEXT,
-            end_date TEXT
-        )"""
-    )
-    conn.commit()
-    return conn
+            logger.error(f"Window {win_start}..{win_end} fetch failed: {exc}")
+            continue
+        dates = _slots_to_dates(payload)
+        in_range = {d for d in dates if start_date <= d <= end_date}
+        logger.debug(f"Window {win_start}..{win_end}: {len(in_range)} day(s) available.")
+        available.update(in_range)
+    return available
 
 
-def _load_previous_uids(conn: sqlite3.Connection) -> set[str]:
-    return {row[0] for row in conn.execute("SELECT uid FROM calendar_state").fetchall()}
-
-
-def _load_event_details(conn: sqlite3.Connection, uids: set[str]) -> list[CalendarEvent]:
-    results: list[CalendarEvent] = []
-    for uid in uids:
-        row = conn.execute(
-            "SELECT uid, summary, start_date, end_date FROM calendar_state WHERE uid = ?",
-            (uid,),
-        ).fetchone()
-        if row:
-            results.append(CalendarEvent(
-                uid=row[0], summary=row[1],
-                start=date.fromisoformat(row[2]),
-                end=date.fromisoformat(row[3]),
-            ))
-    return results
-
-
-def _save_state(conn: sqlite3.Connection, events: list[CalendarEvent]) -> None:
-    conn.execute("DELETE FROM calendar_state")
-    conn.executemany(
-        "INSERT INTO calendar_state (uid, summary, start_date, end_date) VALUES (?, ?, ?, ?)",
-        [(e.uid, e.summary, e.start.isoformat(), e.end.isoformat()) for e in events],
-    )
-    conn.commit()
-
-
-def fetch_and_diff(
-    calendar_id: str, start_date: date, end_date: date
-) -> list[CalendarEvent]:
-    """
-    Return events that disappeared since the last check (newly open slots).
-    First run establishes baseline — no alerts sent.
-    """
-    raw = _fetch_ics(calendar_id)
-    current_events = _parse_ics(raw, start_date, end_date)
-    current_uids = {e.uid for e in current_events}
-
-    conn = _get_db()
-    previous_uids = _load_previous_uids(conn)
-
-    if not previous_uids:
-        logger.info(f"Baseline established: {len(current_events)} event(s) in range.")
-        _save_state(conn, current_events)
-        conn.close()
-        return []
-
-    cancelled_uids = previous_uids - current_uids
-    cancelled = _load_event_details(conn, cancelled_uids)
-
-    _save_state(conn, current_events)
-    conn.close()
-
-    if cancelled:
-        logger.info(f"Opening(s) detected: {', '.join(e.label() for e in cancelled)}")
-    else:
-        logger.debug("No changes detected.")
-
-    return cancelled
+def all_days_in_range(start_date: date, end_date: date) -> set[date]:
+    days: set[date] = set()
+    day = start_date
+    while day <= end_date:
+        days.add(day)
+        day += timedelta(days=1)
+    return days

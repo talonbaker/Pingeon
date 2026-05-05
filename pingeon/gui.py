@@ -16,7 +16,7 @@ from tkinter import messagebox, scrolledtext
 from typing import Optional
 
 from . import config, logger, service_manager
-from .calendar_poller import fetch_and_diff
+from .calendar_poller import fetch_available_dates, all_days_in_range
 from .notifier import send_alert, send_test
 from .constants import APP_VERSION, MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES
 
@@ -95,8 +95,8 @@ class App(tk.Tk):
 
     # ── UI construction ───────────────────────────────────────────────────────
 
-    def _lbl(self, parent, text, **kw) -> tk.Label:
-        return tk.Label(parent, text=text, bg=BG, fg=FG, font=("Segoe UI", 9), **kw)
+    def _lbl(self, parent, text, fg=FG, **kw) -> tk.Label:
+        return tk.Label(parent, text=text, bg=BG, fg=fg, font=("Segoe UI", 9), **kw)
 
     def _entry(self, parent, var, width=50) -> tk.Entry:
         return tk.Entry(
@@ -312,26 +312,47 @@ class App(tk.Tk):
         alert_email = cfg["alert_email"]
         interval_seconds = int(cfg["check_interval_minutes"]) * 60
 
+        range_days = all_days_in_range(start_date, end_date)
+        baseline_available: Optional[set[date]] = None
+        notified: set[date] = set()
+
         while not self._stop_event.is_set():
             try:
                 logger.info("Checking calendar…")
-                opened = fetch_and_diff(calendar_id, start_date, end_date)
+                available_now = fetch_available_dates(calendar_id, start_date, end_date) & range_days
                 self.after(0, lambda: self._last_check_var.set(
                     datetime.now().strftime("%H:%M:%S")
                 ))
-                if opened:
-                    try:
-                        send_alert(alert_email, opened)
-                    except Exception as exc:
-                        logger.error(f"Could not send alert email: {exc}")
-                    # Always show in-app dialog too
-                    slots = "\n".join(f"• {e.label()}" for e in opened)
-                    self.after(0, lambda s=slots: messagebox.showinfo(
-                        "Pingeon — Slot Available!",
-                        f"A slot just opened:\n\n{s}\n\n"
-                        f"An alert email was sent to {alert_email}.",
-                        parent=self,
-                    ))
+
+                if baseline_available is None:
+                    baseline_available = available_now
+                    logger.info(
+                        f"Baseline: {len(available_now)} day(s) currently available in range."
+                    )
+                    initial = sorted(available_now)
+                    if initial:
+                        try:
+                            send_alert(alert_email, initial, kind="initial")
+                        except Exception as exc:
+                            logger.error(f"Could not send initial snapshot email: {exc}")
+                else:
+                    newly_open = available_now - baseline_available
+                    fresh = sorted(d for d in newly_open if d not in notified)
+                    if fresh:
+                        notified.update(fresh)
+                        try:
+                            send_alert(alert_email, fresh)
+                        except Exception as exc:
+                            logger.error(f"Could not send alert email: {exc}")
+                        slots = "\n".join(f"• {d.isoformat()}" for d in fresh)
+                        self.after(0, lambda s=slots: messagebox.showinfo(
+                            "Pingeon — Slot Available!",
+                            f"New opening(s):\n\n{s}\n\n"
+                            f"An alert email was sent to {alert_email}.",
+                            parent=self,
+                        ))
+                    else:
+                        logger.debug("No new openings.")
             except Exception as exc:
                 logger.error(f"Poll error: {exc}")
 
