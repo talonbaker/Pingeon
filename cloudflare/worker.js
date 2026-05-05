@@ -16,9 +16,9 @@
 const SETUP_URL =
   'https://raw.githubusercontent.com/talonbaker/Pingeon/main/setup.ps1';
 
-const SUBJECT_TEST    = 'Pingeon -- Test Alert';
-const SUBJECT_INITIAL = 'Pingeon -- Currently open dates';
-const SUBJECT_UPDATE  = 'Pingeon -- A slot just opened!';
+const SUBJECT_TEST    = 'PINGEON!--Test Alert';
+const SUBJECT_INITIAL = 'PINGEON!--Currently Open Dates';
+const SUBJECT_UPDATE  = 'PINGEON!--Found an Opening';
 
 // Hard caps. Defense-in-depth in case the auth token leaks: even with the
 // token, an attacker can't post huge bodies, spam arbitrary content into the

@@ -8,8 +8,10 @@ The API caps each request at ~30 days, so we paginate.
 """
 
 import json
+import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
@@ -93,7 +95,7 @@ def _windowed(start_date: date, end_date: date, span_days: int):
         cur = win_end
 
 
-def fetch_available_dates(
+def _fetch_available_dates_appointment(
     schedule_id: str, start_date: date, end_date: date
 ) -> set[date]:
     """Return every date in [start_date, end_date] that has at least one bookable slot."""
@@ -112,6 +114,95 @@ def fetch_available_dates(
         logger.debug(f"Window {win_start}..{win_end}: {len(in_range)} day(s) available.")
         available.update(in_range)
     return available
+
+
+def _build_ics_url(calendar_id: str) -> str:
+    if calendar_id.startswith("http"):
+        return calendar_id
+    return (
+        "https://calendar.google.com/calendar/ical/"
+        f"{urllib.parse.quote(calendar_id, safe='')}/public/basic.ics"
+    )
+
+
+def _fetch_ics(ics_url: str) -> str:
+    req = urllib.request.Request(ics_url, headers={"User-Agent": "Pingeon/1.0"})
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_SECONDS) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(
+                f"ICS fetch HTTP {exc.code} — calendar may not be set to public"
+            )
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(f"ICS fetch attempt {attempt} failed: {exc}")
+            if attempt < RETRY_ATTEMPTS:
+                time.sleep(RETRY_BACKOFF_SECONDS)
+    raise RuntimeError(f"ICS fetch failed after {RETRY_ATTEMPTS} attempts: {last_exc}")
+
+
+def _parse_ics_date(value: str) -> Optional[date]:
+    s = value.strip()[:8]
+    try:
+        return date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+    except (ValueError, IndexError):
+        return None
+
+
+def _parse_ics_busy_dates(ics_text: str, start_date: date, end_date: date) -> set[date]:
+    """Return every date in [start_date, end_date] that has at least one event."""
+    busy: set[date] = set()
+    unfolded = re.sub(r"\r?\n[ \t]", "", ics_text)
+    in_event = False
+    ev_start: Optional[date] = None
+    ev_end: Optional[date] = None
+    for line in unfolded.splitlines():
+        key = line.split(":", 1)[0].split(";")[0].upper()
+        val = line.split(":", 1)[1] if ":" in line else ""
+        if key == "BEGIN" and val.strip() == "VEVENT":
+            in_event, ev_start, ev_end = True, None, None
+        elif key == "END" and val.strip() == "VEVENT":
+            if in_event and ev_start:
+                end = ev_end if ev_end else ev_start + timedelta(days=1)
+                d = ev_start
+                while d < end:
+                    if start_date <= d <= end_date:
+                        busy.add(d)
+                    d += timedelta(days=1)
+            in_event = False
+        elif in_event:
+            if key == "DTSTART":
+                ev_start = _parse_ics_date(val)
+            elif key == "DTEND":
+                ev_end = _parse_ics_date(val)
+    return busy
+
+
+def _fetch_available_dates_ics(
+    calendar_id: str, start_date: date, end_date: date
+) -> set[date]:
+    """Return dates in [start_date, end_date] that have no events (free days)."""
+    ics_url = _build_ics_url(calendar_id)
+    logger.debug(f"Fetching ICS: {ics_url}")
+    ics_text = _fetch_ics(ics_url)
+    busy = _parse_ics_busy_dates(ics_text, start_date, end_date)
+    free = all_days_in_range(start_date, end_date) - busy
+    logger.debug(f"ICS: {len(busy)} busy, {len(free)} free in range.")
+    return free
+
+
+def fetch_available_dates(
+    calendar_id: str,
+    start_date: date,
+    end_date: date,
+    calendar_type: str = "appointment",
+) -> set[date]:
+    if calendar_type == "ics":
+        return _fetch_available_dates_ics(calendar_id, start_date, end_date)
+    return _fetch_available_dates_appointment(calendar_id, start_date, end_date)
 
 
 def all_days_in_range(start_date: date, end_date: date) -> set[date]:

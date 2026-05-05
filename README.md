@@ -6,11 +6,11 @@
 
 <p align="center">
   <em>The power-pigeon pinging engine.</em><br>
-  Watches any Google Appointment Scheduling page and emails you the moment a slot opens.
+  Watches any public Google Calendar and emails you the moment a slot opens.
 </p>
 
 Booked-out clinic? Photographer with no openings for a year? Pingeon polls the
-schedule on your behalf and pings you the second somebody cancels — so you can
+calendar on your behalf and pings you the second somebody cancels — so you can
 swoop in before anyone else.
 
 ---
@@ -33,7 +33,7 @@ library that ships with Python 3.8+.
 
 | Field | Example |
 |---|---|
-| **Calendar Link** | `https://calendar.app.google/...` (any Google Appointment Scheduling URL) |
+| **Calendar Link** | Any Google Calendar URL — appointment scheduling, regular calendar share link, or direct `.ics` / `webcal://` URL |
 | **Start Date** | `2026-06-01` |
 | **End Date** | `2027-06-01` |
 | **Check Interval** | `5` (minutes, 1–60) |
@@ -52,19 +52,21 @@ library that ships with Python 3.8+.
 ## How it works
 
 ```
-Google Appointment           Pingeon (your machine)              You
-Scheduling API     ──────►   poll every N minutes      ──────►   email
-                             diff against baseline                with
-                             dedup notified dates                 the freed
-                                                                  date
+Google Calendar              Pingeon (your machine)              You
+(Appointment API       ──►   poll every N minutes      ──────►   email
+ or ICS feed)               diff against baseline                when a
+                             dedup notified dates                 slot opens
 ```
 
-- Reads from Google's public Appointment Scheduling JSON API — no login, no
-  API key on your end.
-- The poller paginates 30-day windows (Google's per-request cap) and reduces
-  slot timestamps to calendar days.
-- A Cloudflare Worker fronts a small Resend account that delivers your alert
-  emails. You never give Pingeon a password.
+**Appointment Scheduling links** — uses Google's public booking JSON API,
+paginated in 30-day windows. Reports days that have bookable slots.
+
+**Regular calendar links and ICS/webcal URLs** — fetches the public ICS feed
+and reports days with no events (free days). When a previously-booked day
+drops off the calendar, you get an alert.
+
+A Cloudflare Worker fronts a small Resend account that delivers your alert
+emails. You never give Pingeon a password or API key.
 
 ---
 
@@ -106,8 +108,8 @@ You'll need:
 - A free [Resend](https://resend.com) account (3,000 emails/month)
 - A domain verified in Resend for the `From:` address
 
-The deploy script provisions a random `NOTIFY_TOKEN`, sets all secrets, and
-publishes the Worker. Read [`SECURITY.md`](SECURITY.md) before you go public.
+The deploy script sets your Resend API key and sender address as Cloudflare
+secrets and publishes the Worker. Read [`SECURITY.md`](SECURITY.md) before you go public.
 
 ---
 
@@ -115,7 +117,6 @@ publishes the Worker. Read [`SECURITY.md`](SECURITY.md) before you go public.
 
 1. **Stop Monitor** in the app.
 2. Delete `%LOCALAPPDATA%\Pingeon\`.
-3. Delete the `Pingeon` shortcut from your Desktop.
 
 ---
 

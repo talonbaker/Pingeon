@@ -13,6 +13,7 @@ from . import logger
 _DEFAULTS: dict[str, Any] = {
     "calendar_link": "",
     "calendar_id": "",
+    "calendar_type": "",     # "appointment" or "ics"
     "monitor_start_date": "",
     "monitor_end_date": "",
     "check_interval_minutes": 2,
@@ -72,6 +73,12 @@ def extract_calendar_id(link: str) -> str:
     if "@" in link and "http" not in link:
         return link
 
+    # Direct ICS / webcal URL.
+    if link.startswith("webcal://"):
+        return "https://" + link[len("webcal://"):]
+    if re.search(r"\.ics($|\?)", link) and link.startswith("http"):
+        return link
+
     # Short link -- resolve via HTTP redirect, then recurse on the long URL.
     # Strict hostname check (parsed, not substring) keeps this from being
     # an SSRF gadget for arbitrary user input.
@@ -115,6 +122,13 @@ def extract_calendar_id(link: str) -> str:
         "Could not extract a calendar ID from the provided link. "
         "Open the calendar in a browser and paste the URL from the address bar."
     )
+
+
+def detect_calendar_type(calendar_id: str) -> str:
+    """Return 'ics' for regular calendars, 'appointment' for scheduling links."""
+    if "@" in calendar_id or calendar_id.startswith("http"):
+        return "ics"
+    return "appointment"
 
 
 def validate(cfg: dict[str, Any]) -> list[str]:

@@ -243,6 +243,7 @@ class App(tk.Tk):
             return
         try:
             draft["calendar_id"] = config.extract_calendar_id(draft["calendar_link"])
+            draft["calendar_type"] = config.detect_calendar_type(draft["calendar_id"])
             draft["check_interval_minutes"] = int(draft["check_interval_minutes"])
             config.save(draft)
             self._cfg = draft
@@ -279,6 +280,7 @@ class App(tk.Tk):
 
         try:
             draft["calendar_id"] = config.extract_calendar_id(draft["calendar_link"])
+            draft["calendar_type"] = config.detect_calendar_type(draft["calendar_id"])
             draft["check_interval_minutes"] = int(draft["check_interval_minutes"])
             config.save(draft)
             self._cfg = draft
@@ -306,6 +308,7 @@ class App(tk.Tk):
     def _poll_loop(self) -> None:
         cfg = self._cfg
         calendar_id = cfg["calendar_id"]
+        calendar_type = cfg.get("calendar_type", "appointment")
         start_date = date.fromisoformat(cfg["monitor_start_date"])
         end_date = date.fromisoformat(cfg["monitor_end_date"])
         alert_email = cfg["alert_email"]
@@ -318,7 +321,7 @@ class App(tk.Tk):
         while not self._stop_event.is_set():
             try:
                 logger.info("Checking calendar…")
-                available_now = fetch_available_dates(calendar_id, start_date, end_date) & range_days
+                available_now = fetch_available_dates(calendar_id, start_date, end_date, calendar_type) & range_days
                 self.after(0, lambda: self._last_check_var.set(
                     datetime.now().strftime("%H:%M:%S")
                 ))
@@ -371,8 +374,12 @@ class App(tk.Tk):
             f"Pingeon v{APP_VERSION}\n\n"
             "Watches any public Google Calendar for cancellations and emails you "
             "the moment a slot opens.\n\n"
+            "Supported calendar types:\n"
+            "  • Google Appointment Scheduling links\n"
+            "  • Regular Google Calendar links\n"
+            "  • Direct ICS / webcal URLs\n\n"
             "External connections:\n"
-            "  • Google Calendar ICS feed (read-only)\n"
+            "  • Google Calendar (read-only, no login)\n"
             "  • Pingeon relay (sends your alert email)\n\n"
             "Everything else stays on your machine.\n"
             "MIT License",
