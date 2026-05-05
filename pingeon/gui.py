@@ -277,15 +277,14 @@ class App(tk.Tk):
             messagebox.showerror("Validation Error", "\n".join(errors), parent=self)
             return
 
-        if not self._cfg.get("calendar_id"):
-            try:
-                draft["calendar_id"] = config.extract_calendar_id(draft["calendar_link"])
-                draft["check_interval_minutes"] = int(draft["check_interval_minutes"])
-                config.save(draft)
-                self._cfg = draft
-            except Exception as exc:
-                messagebox.showerror("Config Error", str(exc), parent=self)
-                return
+        try:
+            draft["calendar_id"] = config.extract_calendar_id(draft["calendar_link"])
+            draft["check_interval_minutes"] = int(draft["check_interval_minutes"])
+            config.save(draft)
+            self._cfg = draft
+        except Exception as exc:
+            messagebox.showerror("Config Error", str(exc), parent=self)
+            return
 
         self._stop_event.clear()
         service_manager.set_running(True)
