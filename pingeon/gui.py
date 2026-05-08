@@ -167,6 +167,17 @@ class App(tk.Tk):
             fg=YELLOW,
         ).pack(anchor="w")
 
+        # Optional note for the test email — handy for stashing the calendar
+        # link in your inbox so you don't lose track of what's being monitored.
+        self._lbl(frame, "Test Message Note (optional):").pack(anchor="w", pady=(10, 1))
+        self._note_var = tk.StringVar()
+        self._entry(frame, self._note_var).pack(anchor="w", ipady=3)
+        self._lbl(
+            frame,
+            "Included only in the test email — paste your calendar link here as a reminder.",
+            fg=YELLOW,
+        ).pack(anchor="w")
+
         # ── Buttons
         tk.Frame(self, bg=BG2, height=1).pack(fill="x", padx=16, pady=10)
 
@@ -257,8 +268,9 @@ class App(tk.Tk):
         if not email:
             messagebox.showwarning("No Email", "Enter an alert email address first.", parent=self)
             return
+        note = self._note_var.get().strip()
         try:
-            send_test(email)
+            send_test(email, note=note)
             messagebox.showinfo(
                 "Test Sent",
                 f"Test alert sent to {email}.\nCheck your inbox (and spam folder).",

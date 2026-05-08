@@ -55,9 +55,17 @@ def send_alert(alert_email: str, available_dates: list[date], kind: str = "updat
         raise
 
 
-def send_test(alert_email: str) -> None:
-    """Send a test alert to verify the email address and relay are working."""
-    req = _make_request(f"{NOTIFY_ENDPOINT}/notify", {"to": alert_email, "test": True})
+def send_test(alert_email: str, note: str = "") -> None:
+    """Send a test alert to verify the email address and relay are working.
+
+    `note` is an optional free-form string (e.g., the calendar link the user is
+    monitoring) that the relay will append to the test email body.
+    """
+    payload: dict = {"to": alert_email, "test": True}
+    note = (note or "").strip()
+    if note:
+        payload["note"] = note
+    req = _make_request(f"{NOTIFY_ENDPOINT}/notify", payload)
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             logger.info(f"Test alert relayed (HTTP {resp.status}).")

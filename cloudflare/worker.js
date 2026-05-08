@@ -29,6 +29,49 @@ const TO_REGEX       = /^[^\s@<>"',;:\\]+@[^\s@<>"',;:\\]+\.[^\s@<>"',;:\\]+$/;
 const TO_MAX_LEN     = 254;
 const DATE_REGEX     = /^\d{4}-\d{2}-\d{2}$/;
 const ALLOWED_KINDS  = new Set(['initial', 'update']);
+const NOTE_MAX_LEN   = 500;
+
+// Pigeon-themed signoffs. One is picked at random for every email Pingeon sends
+// (test, initial snapshot, or update alert) so each message has a little
+// personality. Add to this list freely.
+const SIGNOFFS = [
+  'Coo coo, signing off!',
+  'Wings up, off to the next ledge.',
+  'Stay breadcrumb-savvy.',
+  'Yours in pigeonly devotion,',
+  'Flap you later.',
+  'Beak regards,',
+  "Don't feed the seagulls.",
+  'Pecking order maintained.',
+  'Coo it however you want.',
+  'Off to bother a statue.',
+  'Catch you on the next perch.',
+  'Stay puffed.',
+  'Roost easy tonight.',
+  'Always a-pigeon, never a-loaf.',
+  'Talons crossed.',
+  "Wing it 'til you make it.",
+  'May your bread crusts be plentiful.',
+  'Fly high, land low, eat fries.',
+  'Coos and kisses,',
+  "Don't let the feathers ruffle you.",
+  'Stay flocking awesome.',
+  'Bread now, regrets later.',
+  'Pigeon out.',
+  'Until our wings cross again,',
+  'Keep on cooing.',
+];
+
+function pickSignoff() {
+  return SIGNOFFS[Math.floor(Math.random() * SIGNOFFS.length)];
+}
+
+// Strip ASCII control characters from user-supplied note text (keep \n, \r, \t).
+// The note is dropped into a plain-text email body, so this is more about
+// keeping the rendering clean than preventing header injection.
+function sanitizeNote(s) {
+  return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
 
 function txt(status, body) {
   return new Response(body, {
@@ -43,21 +86,33 @@ function pickSubject(kind, isTest) {
   return SUBJECT_UPDATE;
 }
 
-function buildEmailBody(slots, kind, isTest) {
+function buildEmailBody(slots, kind, isTest, note) {
+  const signoff = pickSignoff();
+  const sig = `---\n${signoff}\n— Pingeon`;
+
   if (isTest) {
-    return 'This is a test alert from Pingeon.\n\nIf you received this, your alert email is configured correctly.';
+    const intro =
+      "Coo coo! It's your friendly neighborhood Pingeon, just flapping by " +
+      "to make sure this nest is wired up right.\n\n" +
+      "If you're reading this, your alert inbox is good to go — Pingeon will " +
+      "swoop in the moment a slot opens up on the calendar you're watching.";
+    const noteBlock = note
+      ? `\n\n----- Your note -----\n${note}\n---------------------`
+      : '';
+    return `${intro}${noteBlock}\n\n${sig}`;
   }
+
   const lines = slots.map(s => `  - ${s.date}`).join('\n');
   if (kind === 'initial') {
     return (
       `Pingeon is now monitoring this calendar. These dates are currently open:\n\n${lines}\n\n` +
-      `You will only get more emails when additional slots open up.\n\n---\nPingeon`
+      `You will only get more emails when additional slots open up.\n\n${sig}`
     );
   }
   const plural = slots.length === 1 ? 'A slot has' : 'Slots have';
   return (
     `${plural} opened on the calendar you are monitoring:\n\n${lines}\n\n` +
-    `Go claim it before someone else does!\n\n---\nPingeon`
+    `Go claim it before someone else does!\n\n${sig}`
   );
 }
 
@@ -110,7 +165,22 @@ function validatePayload(body) {
     }
   }
 
-  return { to, kind, isTest, slots };
+  // Optional free-form note attached to test emails (e.g. the calendar URL the
+  // user is monitoring, so it lands in their inbox as a reminder). Only
+  // accepted on test sends — alert emails are slot-only and shouldn't carry
+  // arbitrary text.
+  let note = '';
+  if (isTest && body.note != null && body.note !== '') {
+    if (typeof body.note !== 'string') {
+      return { error: 'Note must be a string.' };
+    }
+    if (body.note.length > NOTE_MAX_LEN) {
+      return { error: `Note too long (max ${NOTE_MAX_LEN} chars).` };
+    }
+    note = sanitizeNote(body.note);
+  }
+
+  return { to, kind, isTest, slots, note };
 }
 
 async function handleNotify(request, env) {
@@ -155,7 +225,7 @@ async function handleNotify(request, env) {
     from: env.FROM_EMAIL || 'Pingeon <onboarding@resend.dev>',
     to:   [v.to],
     subject: pickSubject(v.kind, v.isTest),
-    text:    buildEmailBody(v.slots, v.kind, v.isTest),
+    text:    buildEmailBody(v.slots, v.kind, v.isTest, v.note),
   };
 
   const resendRes = await fetch('https://api.resend.com/emails', {
